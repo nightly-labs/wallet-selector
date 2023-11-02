@@ -2067,8 +2067,6 @@ DEALINGS IN THE SOFTWARE.
 
 @near-wallet-selector/nightly
 
-@near-wallet-selector/opto-wallet
-
 @near-wallet-selector/ramper-wallet
 
 @near-wallet-selector/sender
