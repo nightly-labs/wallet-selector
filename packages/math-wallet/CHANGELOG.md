@@ -1,5 +1,13 @@
 # @near-wallet-selector/math-wallet
 
+## 10.0.0
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @near-wallet-selector/core@10.0.0
+  - @near-wallet-selector/wallet-utils@10.0.0
+
 ## 9.5.1
 
 ### Patch Changes
