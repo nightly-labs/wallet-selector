@@ -1,4 +1,5 @@
 import type {
+  FinalExecutionOutcome,
   SignedMessage,
   SignMessageParams,
 } from "@near-wallet-selector/core";
@@ -16,11 +17,15 @@ export interface NearNightly {
   isConnected: boolean;
   signMessage: (params: SignMessageParams) => Promise<SignedMessage>;
   signTransaction: (
-    transaction: NearTransaction
-  ) => Promise<NearSignedTransaction>;
+    transaction: NearTransaction,
+    submit?: boolean
+  ) => Promise<NearSignedTransaction> | Promise<FinalExecutionOutcome>;
   signAllTransactions: (
-    transaction: Array<NearTransaction>
-  ) => Promise<Array<NearSignedTransaction>>;
+    transaction: Array<NearTransaction>,
+    submit?: boolean
+  ) =>
+    | Promise<Array<NearSignedTransaction>>
+    | Promise<Array<FinalExecutionOutcome>>;
   connect: (
     onAccountChange?: (acc?: NightlyAccount) => void,
     eagerConnect?: boolean

@@ -9,12 +9,15 @@ import type {
   WalletEvents,
   Account,
 } from "@near-wallet-selector/core";
-import { signTransactions } from "@near-wallet-selector/wallet-utils";
+import {
+  createAction,
+  signTransactions,
+} from "@near-wallet-selector/wallet-utils";
 import type { Signer } from "near-api-js";
 import * as nearAPI from "near-api-js";
 import type { NearNightly, InjectedNightly } from "./injected-nightly";
-import type { FinalExecutionOutcome } from "near-api-js/lib/providers/index.js";
 import icon from "./icon";
+import type { AccessKeyViewRaw } from "@near-js/types";
 
 declare global {
   interface Window {
@@ -151,11 +154,13 @@ const Nightly: WalletBehaviourFactory<InjectedWallet> = async ({
           Buffer.from(message)
         );
         const signedTx = await _state.wallet.signTransaction(tx);
-
-        return {
-          signature: signedTx.signature.data,
-          publicKey: tx.publicKey,
-        };
+        if ("signature" in signedTx) {
+          return {
+            signature: signedTx.signature.data,
+            publicKey: tx.publicKey,
+          };
+        }
+        throw new Error("Failed to sign transaction");
       } catch (err) {
         logger.log("Failed to sign message");
         logger.error(err);
@@ -163,6 +168,56 @@ const Nightly: WalletBehaviourFactory<InjectedWallet> = async ({
         throw Error("Invalid message. Only transactions can be signed");
       }
     },
+  };
+
+  const signAndSendTransactions = async ({
+    transactions,
+    accounts,
+  }: {
+    transactions: Array<Optional<Transaction, "signerId">>;
+    accounts: Array<Account>;
+  }) => {
+    const transformedTx: Array<nearAPI.transactions.Transaction> = [];
+    for (let i = 0; i < transactions.length; i++) {
+      const publicKey = await signer.getPublicKey(
+        transactions[i].signerId,
+        options.network.networkId
+      );
+
+      const [block, accessKey] = await Promise.all([
+        provider.block({ finality: "final" }),
+        provider.query<AccessKeyViewRaw>({
+          request_type: "view_access_key",
+          finality: "final",
+          account_id: transactions[i].signerId,
+          public_key: publicKey.toString(),
+        }),
+      ]);
+
+      const transformedActions = transactions[i].actions.map((action) =>
+        createAction(action)
+      );
+
+      const transaction = nearAPI.transactions.createTransaction(
+        transactions[i].signerId || accounts[0].accountId,
+        nearAPI.utils.PublicKey.from(publicKey.toString()),
+        transactions[i].receiverId,
+        accessKey.nonce + i + 1,
+        transformedActions,
+        nearAPI.utils.serialize.base_decode(block.header.hash)
+      );
+      transformedTx.push(transaction);
+    }
+    const finalExecutionOutcome: Array<nearAPI.providers.FinalExecutionOutcome> =
+      [];
+    for (const tx of transformedTx) {
+      const result = await _state.wallet.signTransaction(tx, true);
+      if ("final_execution_status" in result) {
+        finalExecutionOutcome.push(result);
+      }
+    }
+
+    return finalExecutionOutcome;
   };
 
   return {
@@ -236,30 +291,18 @@ const Nightly: WalletBehaviourFactory<InjectedWallet> = async ({
       if (!accounts.length || !contract) {
         throw new Error("Wallet not signed in");
       }
-      const [signedTx] = await signTransactions(
-        transformTransactions([{ signerId, receiverId, actions }]),
-        signer,
-        options.network
-      );
-      return provider.sendTransaction(signedTx);
+      const transactions = transformTransactions([
+        { signerId, receiverId, actions },
+      ]);
+
+      return (await signAndSendTransactions({ transactions, accounts }))[0];
     },
 
     async signAndSendTransactions({ transactions }) {
       logger.log("signAndSendTransactions", { transactions });
 
-      const signedTxs = await signTransactions(
-        transformTransactions(transactions),
-        signer,
-        options.network
-      );
-
-      const results: Array<FinalExecutionOutcome> = [];
-
-      for (let i = 0; i < signedTxs.length; i++) {
-        results.push(await provider.sendTransaction(signedTxs[i]));
-      }
-
-      return results;
+      const accounts = getAccounts();
+      return await signAndSendTransactions({ transactions, accounts });
     },
 
     async createSignedTransaction(receiverId, actions) {
